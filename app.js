@@ -11,6 +11,7 @@ const fmtSec = s => { s = Math.max(0, Math.round(+s || 0)); return `${Math.floor
 const numStr = v => (v === "" || v == null) ? "" : String(v).replace(".", ",");
 const toNum = v => { if (v === "" || v == null) return ""; const n = parseFloat(String(v).replace(",", ".")); return isNaN(n) ? "" : n; };
 const RIR = ["", "0", "1", "2", "3", "4+"];
+const RIR_LABEL = { "0": "0 — отказ", "1": "+1 — на пределе", "2": "+2 — тяжело", "3": "+3 — норм", "4+": "+4 — легко" };
 
 /* ---------- состояние ---------- */
 function blank() {
@@ -135,7 +136,7 @@ function setRow(e, i, s, j) {
   else if (e.type === "t") f = field(i, j, "t", s.t, "сек", "numeric");
   else f = field(i, j, "min", s.min, "мин") + field(i, j, "km", s.km, "км") + field(i, j, "lvl", s.lvl, "ур", "numeric");
   const rir = (e.type === "wr" || e.type === "r")
-    ? `<select data-i="${i}" data-j="${j}" data-k="rir" aria-label="Запас повторов">${RIR.map(r => `<option value="${r}" ${String(s.rir) === r ? "selected" : ""}>${r === "" ? "зап" : "зап " + r}</option>`).join("")}</select>`
+    ? `<select data-i="${i}" data-j="${j}" data-k="rir" aria-label="Запас повторов"><option value="" ${s.rir === "" || s.rir == null ? "selected" : ""}>запас?</option>${RIR.slice(1).map(r => `<option value="${r}" ${String(s.rir) === r ? "selected" : ""}>${RIR_LABEL[r]}</option>`).join("")}</select>`
     : `<span></span>`;
   return `<div class="set ${s.done ? "done" : ""}"><span class="n">${j + 1}</span><div class="fields">${f}</div>${rir}<button class="check" data-act="done" data-i="${i}" data-j="${j}" aria-label="Подход выполнен">✓</button></div>`;
 }
@@ -149,7 +150,7 @@ function viewToday(v) {
     <h1>${esc(day.title)}</h1>
     <p class="sub">${esc(pl.week)} · <span class="num">${doneSets}/${allSets}</span> подходов</p>
     <div class="days">${pl.days.map(x => `<button data-act="day" data-id="${x.id}" class="${x.id === day.id ? "on" : ""}"><b>${esc(x.label)}</b><span>${esc(x.title)}</span></button>`).join("")}</div>
-    ${pl.rule ? `<div class="rule">${esc(pl.rule)}</div>` : ""}
+    ${pl.rule ? `<div class="rule">${esc(pl.rule)}<br><b>Запас</b> — сколько повторов ещё могли бы сделать после подхода (0 = отказ).</div>` : ""}
     ${d.ex.map((e, i) => {
       const prev = lastResult(e.name);
       const complete = e.sets.length && e.sets.every(s => s.done);
