@@ -291,6 +291,7 @@ function mdFor(p) {
   const ses = S.sessions.filter(s => s.profile === p).sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
   const ms = S.measures.filter(m => m.profile === p).sort((a, b) => b.date.localeCompare(a.date));
   let md = `# Дневник из приложения — ${name}\n\n_Выгружено: ${ruDate(todayISO())} ${new Date().toTimeString().slice(0, 5)} · план: ${pl.week}_\n\n`;
+  md += `> **Для Claude:** выгрузка из приложения «Тренер». Подключи скилл \`personal-trainer\` и перенеси эти результаты в дневник в \`C:\\Тренировки\`.\n\n`;
   md += `Обозначения: «60×8 (зап 2)» — 60 кг на 8 повторов, 2 повтора в запасе. Время — мин:сек.\n\n`;
   md += `## Журнал тренировок\n\n`;
   md += ses.length ? ses.map(s => {
