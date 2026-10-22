@@ -1,7 +1,7 @@
 // Офлайн-кэш приложения. При изменении файлов увеличить VERSION.
-const VERSION = "trainer-v1";
+const VERSION = "trainer-v2";
 const FILES = [
-  "./", "index.html", "style.css", "app.js", "plan-default.js", "manifest.webmanifest",
+  "./", "index.html", "style.css", "app.js", "sync.js", "plan-default.js", "manifest.webmanifest",
   "vendor/xlsx.full.min.js",
   "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/apple-touch-icon.png"
 ];

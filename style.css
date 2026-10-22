@@ -174,3 +174,4 @@ table.m th { color: var(--muted); font-weight: 500; font-size: 12px; }
   body, .top { padding-left: calc(50vw - 300px); padding-right: calc(50vw - 300px); }
 }
 body.timer-on { padding-bottom: calc(var(--safe-b) + 160px); }
+a.btn { text-decoration: none; }

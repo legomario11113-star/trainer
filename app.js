@@ -20,11 +20,15 @@ function blank() {
     sessions: [],
     measures: [],
     drafts: {},
+    deleted: {},
+    meta: { plansTs: { me: 0, her: 0 }, namesTs: 0 },
     ui: { profile: "me", tab: "today", day: {} }
   };
 }
 let S;
 try { S = Object.assign(blank(), JSON.parse(localStorage.getItem(KEY) || "null") || {}); } catch { S = blank(); }
+S.deleted = S.deleted || {}; S.meta = Object.assign({ plansTs: { me: 0, her: 0 }, namesTs: 0 }, S.meta || {});
+const changed = () => { if (typeof Sync !== "undefined") Sync.schedule(); };
 let saveT;
 function save(now) {
   clearTimeout(saveT);
@@ -228,6 +232,8 @@ function viewMore(v) {
     <button class="btn ghost" data-act="import-plan">Загрузить новый план (.json)</button>
     <p>Файл плана присылает Claude. Сейчас: «${esc(plan("me").week)}» / «${esc(plan("her").week)}».</p>
 
+    ${Sync.section()}
+
     <h2>Для себя</h2>
     <button class="btn ghost" data-act="export-xlsx">Выгрузить в Excel (.xlsx)</button>
     <p>Все тренировки и замеры обоих профилей, по подходам.</p>
@@ -332,9 +338,9 @@ function importPlan(data) {
   got.forEach(p => {
     const old = S.drafts[p];
     if (old && !plans[p].days.some(d => d.id === old.dayId)) delete S.drafts[p];
-    S.plans[p] = plans[p]; delete S.ui.day[p];
+    S.plans[p] = plans[p]; delete S.ui.day[p]; S.meta.plansTs[p] = Date.now();
   });
-  save(true); render();
+  save(true); render(); changed();
   toast("План обновлён: " + got.map(p => S.names[p]).join(", "));
 }
 function backup() {
@@ -346,7 +352,8 @@ function restoreBackup(data) {
   if (!confirm(`Заменить текущие данные копией от ${new Date(data.exported).toLocaleString("ru")}?`)) return;
   const ui = S.ui;
   S = Object.assign(blank(), data, { ui }); delete S.app; delete S.version; delete S.exported;
-  save(true); render(); toast("Данные восстановлены");
+  S.deleted = S.deleted || {}; S.meta = Object.assign({ plansTs: { me: 0, her: 0 }, namesTs: 0 }, S.meta || {});
+  save(true); render(); changed(); toast("Данные восстановлены");
 }
 
 /* ---------- завершение тренировки ---------- */
@@ -373,7 +380,7 @@ function saveSession() {
   S.sessions.push(ses);
   delete S.drafts[P()];
   save(true); closeSheet(); stopTimer();
-  S.ui.tab = "history"; render();
+  S.ui.tab = "history"; render(); changed();
   toast("Тренировка сохранена 💪");
 }
 function editSession(id) {
@@ -427,21 +434,22 @@ document.addEventListener("click", e => {
     case "timer-plus": timerEnd += 15000; $("#timer").classList.remove("over"); tick(); break;
     case "timer-minus": timerEnd -= 15000; tick(); break;
     case "timer-stop": stopTimer(); break;
-    case "del-session": if (confirm("Удалить эту тренировку?")) { S.sessions = S.sessions.filter(s => s.id !== b.dataset.id); save(); render(); } break;
+    case "del-session": if (confirm("Удалить эту тренировку?")) { S.deleted[b.dataset.id] = Date.now(); S.sessions = S.sessions.filter(s => s.id !== b.dataset.id); save(); render(); changed(); } break;
     case "edit-session": editSession(b.dataset.id); break;
     case "add-measure": {
       const w = toNum($("#mWeight").value), wa = toNum($("#mWaist").value), note = $("#mNote").value.trim();
       if (w === "" && wa === "" && !note) { toast("Заполните хотя бы одно поле"); return; }
-      S.measures.push({ id: uid(), profile: P(), date: $("#mDate").value || todayISO(), weight: w, waist: wa, note });
-      save(true); render(); toast("Замер сохранён"); break;
+      S.measures.push({ id: uid(), ts: Date.now(), profile: P(), date: $("#mDate").value || todayISO(), weight: w, waist: wa, note });
+      save(true); render(); changed(); toast("Замер сохранён"); break;
     }
-    case "del-measure": if (confirm("Удалить замер?")) { S.measures = S.measures.filter(m => m.id !== b.dataset.id); save(); render(); } break;
+    case "del-measure": if (confirm("Удалить замер?")) { S.deleted[b.dataset.id] = Date.now(); S.measures = S.measures.filter(m => m.id !== b.dataset.id); save(); render(); changed(); } break;
     case "export-md": exportMd(false); break;
     case "export-md-all": exportMd(true); break;
     case "export-xlsx": exportXlsx(); break;
     case "import-plan": pickFile("plan"); break;
     case "backup": backup(); break;
     case "restore": pickFile("restore"); break;
+    case "sync-create": case "sync-connect": case "sync-now": case "sync-code": case "sync-copy": case "sync-off": Sync.handle(act); break;
     case "wipe":
       if (confirm("Удалить ВСЕ тренировки, замеры и планы на этом устройстве?") && confirm("Точно? Это нельзя отменить.")) {
         S = blank(); save(true); render(); toast("Данные удалены");
@@ -451,7 +459,7 @@ document.addEventListener("click", e => {
 });
 document.addEventListener("input", e => {
   const t = e.target;
-  if (t.dataset.name) { S.names[t.dataset.name] = t.value.trim() || (t.dataset.name === "me" ? "Я" : "Девушка"); renderProfiles(); save(); return; }
+  if (t.dataset.name) { S.names[t.dataset.name] = t.value.trim() || (t.dataset.name === "me" ? "Я" : "Девушка"); renderProfiles(); S.meta.namesTs = Date.now(); save(); changed(); return; }
   const d = S.drafts[P()]; if (!d) return;
   if (t.dataset.k === "date") { d.date = t.value || todayISO(); save(); return; }
   if (t.dataset.k === "note") { d.ex[+t.dataset.i].note = t.value; save(); return; }
@@ -464,4 +472,5 @@ document.addEventListener("input", e => {
 document.addEventListener("change", e => { if (e.target.dataset.name) render(); });
 
 render();
+Sync.syncNow(false);
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
