@@ -39,7 +39,8 @@ window.addEventListener("pagehide", () => save(true));
 document.addEventListener("visibilitychange", () => document.hidden && save(true));
 if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
 
-const P = () => S.ui.profile;
+const VIS = () => (typeof Sync !== "undefined" ? Sync.profiles : ["me", "her"]);
+const P = () => { const v = VIS(); if (!v.includes(S.ui.profile)) S.ui.profile = v[0]; return S.ui.profile; };
 const plan = (p = P()) => S.plans[p] || { week: "", rule: "", days: [] };
 
 /* ---------- общие элементы ---------- */
@@ -52,7 +53,8 @@ function closeSheet() { $("#modal").classList.add("hidden"); $("#sheet").innerHT
 $("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeSheet(); });
 
 function renderProfiles() {
-  $("#profiles").innerHTML = ["me", "her"].map(p =>
+  P();
+  $("#profiles").innerHTML = VIS().map(p =>
     `<button data-act="profile" data-p="${p}" class="${P() === p ? "on" : ""}">${esc(S.names[p])}</button>`).join("");
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === S.ui.tab));
 }
@@ -227,7 +229,7 @@ function viewMore(v) {
   <div class="menu">
     <h2>Для Claude</h2>
     <button class="btn" data-act="export-md">Выгрузить дневник (.md) — ${esc(S.names[P()])}</button>
-    <button class="btn ghost" data-act="export-md-all">Выгрузить дневник (.md) — оба</button>
+    ${VIS().length > 1 ? `<button class="btn ghost" data-act="export-md-all">Выгрузить дневник (.md) — оба</button>` : ""}
     <p>Файл в формате, который Claude читает напрямую. Прикрепите его в чат или положите в папку C:\\Тренировки.</p>
     <button class="btn ghost" data-act="import-plan">Загрузить новый план (.json)</button>
     <p>Файл плана присылает Claude. Сейчас: «${esc(plan("me").week)}» / «${esc(plan("her").week)}».</p>
@@ -236,14 +238,14 @@ function viewMore(v) {
 
     <h2>Для себя</h2>
     <button class="btn ghost" data-act="export-xlsx">Выгрузить в Excel (.xlsx)</button>
-    <p>Все тренировки и замеры обоих профилей, по подходам.</p>
+    <p>Все тренировки и замеры${VIS().length > 1 ? " обоих профилей" : ""}, по подходам.</p>
 
     <h2>Резервная копия</h2>
     <div class="row"><button class="btn ghost" data-act="backup">Сохранить копию</button><button class="btn ghost" data-act="restore">Восстановить</button></div>
     <p>Данные хранятся только в этом браузере. Делайте копию раз в неделю — особенно на iPhone.</p>
 
     <h2>Имена профилей</h2>
-    <div class="form"><label>Профиль 1<input data-name="me" value="${esc(S.names.me)}"></label><label>Профиль 2<input data-name="her" value="${esc(S.names.her)}"></label></div>
+    <div class="form">${VIS().map((p, i) => `<label>Профиль ${i + 1}<input data-name="${p}" value="${esc(S.names[p])}"></label>`).join("")}</div>
     <h2>&nbsp;</h2>
     <button class="btn danger" data-act="wipe">Удалить все данные на этом устройстве</button>
   </div>`;
@@ -281,7 +283,7 @@ function mdFor(p) {
   return md;
 }
 function exportMd(all) {
-  const ps = all ? ["me", "her"] : [P()];
+  const ps = all ? VIS() : [P()];
   const md = ps.map(mdFor).join("\n\n---\n\n");
   const fname = all ? `дневник_оба_${stamp()}.md` : `дневник_${S.names[P()]}_${stamp()}.md`;
   deliver(fname.replace(/[\\/:*?"<>|\s]+/g, "_"), new Blob([md], { type: "text/markdown" }));
@@ -295,15 +297,16 @@ function loadXlsx() {
 async function exportXlsx() {
   try { await loadXlsx(); } catch (e) { toast(e.message); return; }
   const rows = [];
-  [...S.sessions].sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts).forEach(s => s.ex.forEach(e => e.sets.forEach((x, j) => rows.push({
+  const vis = VIS();
+  [...S.sessions].filter(s => vis.includes(s.profile)).sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts).forEach(s => s.ex.forEach(e => e.sets.forEach((x, j) => rows.push({
     "Профиль": S.names[s.profile], "Дата": ruDate(s.date), "Тренировка": s.dayTitle, "Упражнение": e.name, "Подход": j + 1,
     "Вес, кг": x.w ?? "", "Повторы": x.r ?? "", "Запас": x.rir ?? "", "Время, сек": x.t ?? "",
     "Минуты": x.min ?? "", "Км": x.km ?? "", "Уровень": x.lvl ?? "", "Заметка": j === 0 ? e.note : ""
   }))));
-  const sess = [...S.sessions].sort((a, b) => a.date.localeCompare(b.date)).map(s => ({
+  const sess = [...S.sessions].filter(s => vis.includes(s.profile)).sort((a, b) => a.date.localeCompare(b.date)).map(s => ({
     "Профиль": S.names[s.profile], "Дата": ruDate(s.date), "Тренировка": s.dayTitle, "Самочувствие": s.feel || "", "Заметки": s.note || ""
   }));
-  const ms = [...S.measures].sort((a, b) => a.date.localeCompare(b.date)).map(m => ({
+  const ms = [...S.measures].filter(m => vis.includes(m.profile)).sort((a, b) => a.date.localeCompare(b.date)).map(m => ({
     "Профиль": S.names[m.profile], "Дата": ruDate(m.date), "Вес, кг": m.weight, "Талия, см": m.waist, "Другое": m.note || ""
   }));
   const wb = XLSX.utils.book_new();
@@ -449,7 +452,7 @@ document.addEventListener("click", e => {
     case "import-plan": pickFile("plan"); break;
     case "backup": backup(); break;
     case "restore": pickFile("restore"); break;
-    case "sync-create": case "sync-connect": case "sync-now": case "sync-code": case "sync-copy": case "sync-off": Sync.handle(act); break;
+    case "sync-create": case "sync-connect": case "sync-now": case "sync-code": case "sync-copy": case "sync-off": Sync.handle(act, b); break;
     case "wipe":
       if (confirm("Удалить ВСЕ тренировки, замеры и планы на этом устройстве?") && confirm("Точно? Это нельзя отменить.")) {
         S = blank(); save(true); render(); toast("Данные удалены");
