@@ -37,6 +37,19 @@ S.deleted = S.deleted || {}; S.meta = Object.assign({ plansTs: { me: 0, her: 0 }
   Object.values(S.drafts || {}).forEach(d => { if (d?.dayTitle) Object.entries(ren).forEach(([o, n]) => { d.dayTitle = d.dayTitle.replace(o, n); }); });
   if (hit) S.meta.plansTs.her = Date.now();
 })();
+// неделя 1 девушки: облегчённый объём и подсказки для новичка
+(() => {
+  if (S.meta.herW1Adj || S.plans.her?.week !== "Неделя 1 — знакомство с залом") return;
+  const def = window.DEFAULT_PLANS.her;
+  S.plans.her.rule = def.rule;
+  S.plans.her.days.forEach(d => {
+    const dd = def.days.find(x => x.id === d.id); if (!dd) return;
+    d.exercises.forEach(e => { const de = dd.exercises.find(x => x.name === e.name); if (de) { e.sets = de.sets; e.hint = de.hint; } });
+  });
+  S.meta.herW1Adj = 1; S.meta.plansTs.her = Date.now();
+  const dr = S.drafts.her;
+  if (dr && !dr.ex.some(e => e.sets.some(x => x.done))) delete S.drafts.her;
+})();
 const changed = () => { if (typeof Sync !== "undefined") Sync.schedule(); };
 let saveT;
 function save(now) {
