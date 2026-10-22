@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Тренер</title>
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Тренер">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="profiles" id="profiles"></div>
+</header>
+
+<main id="view"></main>
+
+<div class="timer hidden" id="timer">
+  <button class="t-btn" data-act="timer-minus">−15</button>
+  <div class="t-main"><span class="t-label">Отдых</span><span class="t-time" id="timerTime">0:00</span></div>
+  <button class="t-btn" data-act="timer-plus">+15</button>
+  <button class="t-btn t-stop" data-act="timer-stop">✕</button>
+</div>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="today"><span class="ti">●</span>Сегодня</button>
+  <button data-tab="history"><span class="ti">☰</span>История</button>
+  <button data-tab="measures"><span class="ti">◐</span>Замеры</button>
+  <button data-tab="more"><span class="ti">⋯</span>Ещё</button>
+</nav>
+
+<div class="modal hidden" id="modal"><div class="sheet" id="sheet"></div></div>
+<div class="toast hidden" id="toast"></div>
+<input type="file" id="fileInput" accept=".json,application/json" hidden>
+
+<script src="plan-default.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
