@@ -28,6 +28,14 @@ function blank() {
 let S;
 try { S = Object.assign(blank(), JSON.parse(localStorage.getItem(KEY) || "null") || {}); } catch { S = blank(); }
 S.deleted = S.deleted || {}; S.meta = Object.assign({ plansTs: { me: 0, her: 0 }, namesTs: 0 }, S.meta || {});
+// переименование дней плана девушки (А/Б → понятные названия)
+(() => {
+  const ren = { "Тренировка А": "Ягодицы и спина", "Тренировка Б": "Ноги и плечи" };
+  let hit = false;
+  (S.plans.her?.days || []).forEach(d => { if (ren[d.title]) { d.title = ren[d.title]; hit = true; } });
+  Object.values(S.drafts || {}).forEach(d => { if (d?.dayTitle) Object.entries(ren).forEach(([o, n]) => { d.dayTitle = d.dayTitle.replace(o, n); }); });
+  if (hit) S.meta.plansTs.her = Date.now();
+})();
 const changed = () => { if (typeof Sync !== "undefined") Sync.schedule(); };
 let saveT;
 function save(now) {
