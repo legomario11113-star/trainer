@@ -221,3 +221,26 @@ button.card { display: block; width: 100%; text-align: left; color: inherit; fon
 .savebar .btn { width: auto; padding: 10px 14px; }
 body.savebar-on { padding-bottom: calc(var(--safe-b) + 150px); }
 @media (max-width: 360px) { .pe-grid { grid-template-columns: 1fr 1fr; } }
+
+/* --- библиотека: поиск и группы --- */
+.search input { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); font-size: 16px; outline: none; color: var(--text); }
+.search input:focus { border-color: var(--accent); }
+.chips { display: flex; gap: 6px; overflow-x: auto; margin: 10px -16px 12px; padding: 0 16px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chips button { flex: 0 0 auto; padding: 7px 12px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); font-size: 14px; color: var(--text); }
+.chips button span { color: var(--muted); font-size: 12px; margin-left: 2px; }
+.chips button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.chips button.on span { color: var(--accent-ink); opacity: .7; }
+.lib-row { display: flex; flex-direction: column; width: 100%; text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); background: none; color: var(--text); }
+.lib-row:active { background: var(--card); }
+.lib-row b { font-weight: 600; font-size: 15px; }
+.lib-row span { color: var(--muted); font-size: 12px; margin-top: 2px; }
+#libItems { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+#libItems .card { margin: 8px; border-color: var(--accent); }
+.pick-list { max-height: 50vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; }
+.sheet .chips { margin-left: 0; margin-right: 0; padding: 0; }
+.pe-row1 { grid-template-columns: 22px 1fr 44px; }
+.pick-btn { width: 44px; height: 42px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 18px; }
+.pe-grid3 { display: grid; grid-template-columns: 1.2fr 1.3fr 1fr; gap: 6px; margin-top: 8px; }
+.pe-grid3 label { font-size: 11px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pe-grid3 select { width: 100%; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 15px; color: var(--text); min-width: 0; }

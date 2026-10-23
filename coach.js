@@ -10,13 +10,33 @@ const Coach = (() => {
   let edit = null;   // { id, plan, dirty }
 
   /* ---- библиотека ---- */
+  const GROUPS = ["Ноги", "Ягодицы", "Спина", "Грудь", "Плечи", "Руки", "Пресс и кор", "Кардио", "Другое"];
+  const norm = t => String(t || "").toLowerCase().replace(/ё/g, "е");
+  function guessGroup(name) {
+    const n = norm(name);
+    if (/кардио|эллипс|велотрен|дорожк|гребл|бег|скакалк/.test(n)) return "Кардио";
+    if (/планк|пресс|скручив|подъем ног|вакуум/.test(n)) return "Пресс и кор";
+    if (/ягодичн|мост|отведени|гиперэкст|кикбек/.test(n)) return "Ягодицы";
+    if (/жим ног|присед|выпад|разгибани.*ног|сгибани.*ног|болгар|гакк|икр|носки|румынск|степ/.test(n)) return "Ноги";
+    if (/тяга|подтяг|становая|вис на|пуловер|шраг/.test(n)) return "Спина";
+    if (/леж|отжим|брус|развод|грудь|кроссовер|бабочк/.test(n)) return "Грудь";
+    if (/сидя|стоя|мах|плеч|армейск|арнольд/.test(n)) return "Плечи";
+    if (/бицепс|трицепс|молот|французск|сгибани.*рук|разгибани.*рук/.test(n)) return "Руки";
+    return "Другое";
+  }
+  function migrateGroups() {
+    let hit = false;
+    S.library.forEach(x => { if (!x.group) { x.group = guessGroup(x.name); hit = true; } });
+    if (hit) save();
+  }
   function seedLibrary() {
+    migrateGroups();
     if (S.library.length || S.meta.librarySeeded) return;
     const seen = new Set();
     Object.values(window.DEFAULT_PLANS).forEach(pl => pl.days.forEach(d => d.exercises.forEach(e => {
       if (e.name.includes(" — ") || seen.has(e.name.toLowerCase())) return;
       seen.add(e.name.toLowerCase());
-      S.library.push({ name: e.name, type: e.type, rest: e.rest || 0, hint: e.hint || "" });
+      S.library.push({ name: e.name, type: e.type, rest: e.rest || 0, hint: e.hint || "", group: guessGroup(e.name) });
     })));
     S.meta.librarySeeded = 1; save();
   }
@@ -154,7 +174,7 @@ const Coach = (() => {
   function exHtml(e, di, ei, n) {
     const a = `data-di="${di}" data-ei="${ei}"`;
     return `<div class="pe-ex">
-      <div class="pe-row1"><span class="n">${ei + 1}</span><input data-ce="ex.name" ${a} value="${esc(e.name)}" list="libList" placeholder="Упражнение (начните вводить)"></div>
+      <div class="pe-row1"><span class="n">${ei + 1}</span><input data-ce="ex.name" ${a} value="${esc(e.name)}" list="libList" placeholder="Упражнение (начните вводить)"><button class="pick-btn" data-c="pick-open" ${a} aria-label="Выбрать из библиотеки">📚</button></div>
       <div class="pe-grid">
         <label>Тип<select data-ce="ex.type" ${a}>${Object.entries(TYPES).map(([k, t]) => `<option value="${k}" ${k === e.type ? "selected" : ""}>${t}</option>`).join("")}</select></label>
         <label>Подходы<input data-ce="ex.sets" ${a} inputmode="numeric" value="${esc(e.sets)}"></label>
@@ -174,25 +194,79 @@ const Coach = (() => {
     </div>`;
   }
 
+  /* ---- поиск по библиотеке (общий для страницы библиотеки и окна выбора в плане) ---- */
+  const libUi = { q: "", g: "", open: -1 };            // страница библиотеки
+  const pickUi = { q: "", g: "", di: -1, ei: -1 };     // окно выбора в редакторе плана
+  function libFilter(ui) {
+    const words = norm(ui.q).split(/\s+/).filter(Boolean);
+    return S.library.map((x, li) => ({ x, li }))
+      .filter(({ x }) => {
+        if (ui.g && x.group !== ui.g) return false;
+        const hay = norm(x.name + " " + x.hint + " " + x.group).split(/[^a-zа-я0-9]+/);   // ищем по началу слов: «жим» ≠ «отжимания»
+        return words.every(w => hay.some(h => h.startsWith(w)));
+      })
+      .sort((a, b) => a.x.name.localeCompare(b.x.name, "ru"));
+  }
+  function chipsHtml(ui, kind) {
+    const count = g => S.library.filter(x => !g || x.group === g).length;
+    return `<div class="chips">${["", ...GROUPS].filter(g => !g || count(g)).map(g =>
+      `<button data-c="${kind}-group" data-g="${esc(g)}" class="${ui.g === g ? "on" : ""}">${esc(g || "Все")} <span>${count(g)}</span></button>`).join("")}</div>`;
+  }
+  function libListHtml() {
+    const items = libFilter(libUi);
+    if (!items.length) return `<div class="empty" style="padding:24px 10px">Ничего не найдено.${libUi.q.trim() ? `<br><br><button class="btn ghost" data-c="lib-add">+ Добавить «${esc(libUi.q.trim())}»</button>` : ""}</div>`;
+    return items.map(({ x, li }) => li === libUi.open ? `<div class="card lib-edit">
+        <div class="form" style="grid-template-columns:1fr">
+          <label>Название<input data-cl="name" data-li="${li}" value="${esc(x.name)}"></label>
+        </div>
+        <div class="pe-grid3">
+          <label>Группа<select data-cl="group" data-li="${li}">${GROUPS.map(g => `<option ${g === x.group ? "selected" : ""}>${g}</option>`).join("")}</select></label>
+          <label>Тип<select data-cl="type" data-li="${li}">${Object.entries(TYPES).map(([k, t]) => `<option value="${k}" ${k === x.type ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+          <label>Отдых<select data-cl="rest" data-li="${li}">${RESTS.concat(RESTS.includes(+x.rest) ? [] : [+x.rest || 0]).map(r => `<option value="${r}" ${r === (+x.rest || 0) ? "selected" : ""}>${r ? fmtSec(r) : "—"}</option>`).join("")}</select></label>
+        </div>
+        <input data-cl="hint" data-li="${li}" value="${esc(x.hint || "")}" placeholder="Подсказка по технике" class="pe-hint">
+        <div class="pe-tools"><button class="link muted" data-c="lib-del" data-li="${li}">✕ удалить</button><button class="link" data-c="lib-open" data-li="-1">Готово</button></div>
+      </div>` : `<button class="lib-row" data-c="lib-open" data-li="${li}">
+        <b>${esc(x.name)}</b><span>${esc(x.group || "")} · ${TYPES[x.type] || ""}${x.rest ? " · " + fmtSec(x.rest) : ""}</span>
+      </button>`).join("");
+  }
   function viewLibrary(v) {
     v.innerHTML = `
       <button class="link" data-c="back">← Все клиенты</button>
       <h1>Библиотека упражнений</h1>
-      <p class="sub">Тип, отдых и подсказка подставятся в план, когда выберете упражнение по названию. Новые упражнения из планов попадают сюда сами.</p>
-      <button class="btn" data-c="lib-add">+ Упражнение</button>
-      <div style="margin-top:12px">
-      ${S.library.map((x, li) => `<div class="card">
-        <div class="form" style="grid-template-columns:1fr">
-          <label>Название<input data-cl="name" data-li="${li}" value="${esc(x.name)}"></label>
-        </div>
-        <div class="pe-grid2" style="margin-top:8px">
-          <label>Тип<select data-cl="type" data-li="${li}">${Object.entries(TYPES).map(([k, t]) => `<option value="${k}" ${k === x.type ? "selected" : ""}>${t}</option>`).join("")}</select></label>
-          <label>Отдых<select data-cl="rest" data-li="${li}">${RESTS.concat(RESTS.includes(+x.rest) ? [] : [+x.rest || 0]).map(r => `<option value="${r}" ${r === (+x.rest || 0) ? "selected" : ""}>${r ? fmtSec(r) : "без таймера"}</option>`).join("")}</select></label>
-        </div>
-        <input data-cl="hint" data-li="${li}" value="${esc(x.hint || "")}" placeholder="Подсказка по технике" class="pe-hint">
-        <div class="pe-tools"><button class="link muted" data-c="lib-del" data-li="${li}">✕ удалить</button></div>
-      </div>`).join("")}
-      </div>`;
+      <p class="sub">${S.library.length} упражнений. Нажмите на упражнение, чтобы изменить. Новые упражнения из планов попадают сюда сами.</p>
+      <div class="search"><input id="libSearch" type="search" value="${esc(libUi.q)}" placeholder="Поиск: «жим», «ягод», «гантел»…" autocomplete="off"></div>
+      <div id="libChips">${chipsHtml(libUi, "lib")}</div>
+      <button class="btn ghost" data-c="lib-add" style="margin-bottom:10px">+ Новое упражнение${libUi.g ? ` в «${esc(libUi.g)}»` : ""}</button>
+      <div id="libItems">${libListHtml()}</div>`;
+  }
+  function refreshLib() {
+    const it = document.getElementById("libItems"); if (it) it.innerHTML = libListHtml();
+    const ch = document.getElementById("libChips"); if (ch) ch.innerHTML = chipsHtml(libUi, "lib");
+  }
+
+  /* окно выбора упражнения для плана */
+  function pickListHtml() {
+    const items = libFilter(pickUi);
+    if (!items.length) return `<div class="empty" style="padding:20px 10px">Ничего не найдено.${pickUi.q.trim() ? `<br><br><button class="btn ghost" data-c="pick-new">Использовать «${esc(pickUi.q.trim())}» как новое</button>` : ""}</div>`;
+    return items.map(({ x, li }) => `<button class="lib-row" data-c="pick" data-li="${li}"><b>${esc(x.name)}</b><span>${esc(x.group || "")} · ${TYPES[x.type] || ""}</span></button>`).join("");
+  }
+  function openPicker(di, ei) {
+    Object.assign(pickUi, { di, ei, q: "" });
+    openSheet(`<h3>Выбрать упражнение</h3>
+      <div class="search"><input id="pickSearch" type="search" placeholder="Поиск по названию…" autocomplete="off"></div>
+      <div id="pickChips">${chipsHtml(pickUi, "pick")}</div>
+      <div id="pickItems" class="pick-list">${pickListHtml()}</div>
+      <button class="btn ghost" data-act="close" style="margin-top:10px">Закрыть</button>`);
+  }
+  function refreshPick() {
+    const it = document.getElementById("pickItems"); if (it) it.innerHTML = pickListHtml();
+    const ch = document.getElementById("pickChips"); if (ch) ch.innerHTML = chipsHtml(pickUi, "pick");
+  }
+  function pickInto(name, fromLib) {
+    const e = edit?.plan.days[pickUi.di]?.exercises[pickUi.ei]; if (!e) return;
+    e.name = name; if (fromLib) applyLib(e);
+    closeSheet(); markDirty(); render();
   }
 
   /* ---- сохранение плана ---- */
@@ -208,7 +282,7 @@ const Coach = (() => {
     pl.days = pl.days.filter(d => d.exercises.length);
     let libAdded = 0;
     pl.days.forEach(d => d.exercises.forEach(e => {
-      if (!libFind(e.name)) { S.library.push({ name: e.name, type: e.type, rest: e.rest, hint: e.hint || "" }); libAdded++; }
+      if (!libFind(e.name)) { S.library.push({ name: e.name, type: e.type, rest: e.rest, hint: e.hint || "", group: guessGroup(e.name) }); libAdded++; }
     }));
     if (libAdded) S.meta.libraryTs = Date.now();
     S.plans[id] = pl; S.meta.plansTs[id] = Date.now();
@@ -277,8 +351,20 @@ const Coach = (() => {
         S.sessions = S.sessions.filter(s => s.profile !== id); S.measures = S.measures.filter(m => m.profile !== id);
         edit = null; save(true); changed(); go("list"); toast("Клиент удалён"); break;
       }
-      case "lib-add": S.library.unshift({ name: "Новое упражнение", type: "wr", rest: 90, hint: "" }); libTouch(); render(); break;
-      case "lib-del": if (confirm(`Удалить «${S.library[li].name}» из библиотеки? В планах клиентов оно останется.`)) { S.library.splice(li, 1); libTouch(); render(); } break;
+      case "lib-add": {
+        const name = libUi.q.trim() || "Новое упражнение";
+        if (libFind(name)) { toast("Такое упражнение уже есть"); return; }
+        S.library.push({ name, type: "wr", rest: 90, hint: "", group: libUi.g || guessGroup(name) });
+        libUi.open = S.library.length - 1; libTouch(); render();
+        setTimeout(() => document.querySelector(`[data-cl="name"][data-li="${libUi.open}"]`)?.focus(), 0); break;
+      }
+      case "lib-del": if (confirm(`Удалить «${S.library[li].name}» из библиотеки? В планах клиентов оно останется.`)) { S.library.splice(li, 1); libUi.open = -1; libTouch(); refreshLib(); } break;
+      case "lib-open": libUi.open = li; refreshLib(); break;
+      case "lib-group": libUi.g = b.dataset.g; libUi.open = -1; refreshLib(); break;
+      case "pick-open": openPicker(di, ei); break;
+      case "pick-group": pickUi.g = b.dataset.g; refreshPick(); break;
+      case "pick": pickInto(S.library[li].name, true); break;
+      case "pick-new": pickInto(pickUi.q.trim(), false); break;
     }
   });
 
@@ -299,7 +385,9 @@ const Coach = (() => {
     }
     if (t.dataset.cl && final) {
       const x = S.library[+t.dataset.li]; if (!x) return;
-      x[t.dataset.cl] = t.dataset.cl === "rest" ? +t.value : t.value; libTouch(); return;
+      x[t.dataset.cl] = t.dataset.cl === "rest" ? +t.value : t.value; libTouch();
+      if (t.dataset.cl === "group") refreshLib();
+      return;
     }
     const f = t.dataset.ce; if (!f || !edit) return;
     const pl = edit.plan, val = t.type === "checkbox" ? t.checked : t.value;
@@ -313,7 +401,11 @@ const Coach = (() => {
     }
     markDirty();
   }
-  document.addEventListener("input", e => { if (e.target.closest("#view") && S.ui.tab === "coach") onField(e.target, false); });
+  document.addEventListener("input", e => {
+    if (e.target.id === "libSearch") { libUi.q = e.target.value; libUi.open = -1; refreshLib(); return; }
+    if (e.target.id === "pickSearch") { pickUi.q = e.target.value; refreshPick(); return; }
+    if (e.target.closest("#view") && S.ui.tab === "coach") onField(e.target, false);
+  });
   document.addEventListener("change", e => { if (e.target.closest("#view") && S.ui.tab === "coach") onField(e.target, true); });
 
   return { view, leave, savePlan };
