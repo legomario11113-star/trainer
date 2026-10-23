@@ -1,5 +1,5 @@
 // Офлайн-кэш приложения. При изменении файлов увеличить VERSION.
-const VERSION = "trainer-v11";
+const VERSION = "trainer-v12";
 const FILES = [
   "./", "index.html", "style.css", "app.js", "sync.js", "coach.js", "plan-default.js", "manifest.webmanifest",
   "vendor/xlsx.full.min.js",

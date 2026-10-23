@@ -83,13 +83,16 @@ $("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeS
 function renderProfiles() {
   P();
   const vis = VIS(), admin = Sync.isAdmin;
-  $("#profiles").classList.toggle("single", !admin);
-  $("#profiles").innerHTML = !vis.length
-    ? `<div class="brand">Тренер</div>`
-    : !admin ? `<div class="brand">${esc(S.names[vis[0]] || "Мой дневник")}</div>`
-    : vis.map(p => `<button data-act="profile" data-p="${p}" class="${P() === p ? "on" : ""}">${esc(S.names[p] || "Без имени")}</button>`).join("");
   $("#tabCoach").classList.toggle("hidden", !admin);
   if (!admin && S.ui.tab === "coach") S.ui.tab = "today";
+  // шапка: у тренера на вкладке «Тренер» не нужна; на остальных — выбор клиента, чей дневник открыт; у клиента — его имя
+  const noTop = admin && (S.ui.tab === "coach" || !vis.length);
+  document.querySelector(".top").classList.toggle("hidden", noTop);
+  document.body.classList.toggle("no-top", noTop);
+  $("#profiles").classList.toggle("single", true);
+  $("#profiles").innerHTML = !admin
+    ? `<div class="brand">${esc(S.names[vis[0]] || "Мой дневник")}</div>`
+    : `<label class="who"><span>Дневник клиента</span><select id="whoSel">${vis.map(p => `<option value="${p}" ${P() === p ? "selected" : ""}>${esc(S.names[p] || "Без имени")}</option>`).join("")}</select></label>`;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === S.ui.tab));
 }
 
@@ -543,6 +546,7 @@ document.addEventListener("click", e => {
       break;
   }
 });
+document.addEventListener("change", e => { if (e.target.id === "whoSel") { S.ui.profile = e.target.value; save(); render(); scrollTo(0, 0); } });
 document.addEventListener("input", e => {
   const t = e.target;
   const d = S.drafts[P()]; if (!d) return;

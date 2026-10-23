@@ -244,3 +244,9 @@ body.savebar-on { padding-bottom: calc(var(--safe-b) + 150px); }
 .pe-grid3 { display: grid; grid-template-columns: 1.2fr 1.3fr 1fr; gap: 6px; margin-top: 8px; }
 .pe-grid3 label { font-size: 11px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .pe-grid3 select { width: 100%; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 15px; color: var(--text); min-width: 0; }
+
+/* шапка: выбор клиента */
+body.no-top { padding-top: calc(var(--safe-t) + 16px); }
+.who { flex: 1; display: flex; align-items: center; gap: 10px; }
+.who span { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.who select { flex: 1; min-width: 0; padding: 9px 12px; border-radius: 999px; border: 1px solid var(--accent); background: var(--card); color: var(--text); font-weight: 600; font-size: 16px; }
