@@ -85,6 +85,7 @@ function render() {
   renderProfiles();
   const v = $("#view");
   ({ today: viewToday, history: viewHistory, measures: viewMeasures, more: viewMore })[S.ui.tab](v);
+  syncTimer();
 }
 
 /* ---------- черновик тренировки ---------- */
@@ -126,10 +127,13 @@ function lastResult(name, profile = P()) {
   return null;
 }
 function setText(type, s) {
-  const rir = s.rir !== "" && s.rir != null ? ` (зап ${s.rir})` : "";
-  if (type === "wr") return `${numStr(s.w) || 0}×${s.r || "?"}${rir}`;
-  if (type === "r") return `${s.r || "?"}${rir}`;
-  if (type === "t") return fmtSec(s.t);
+  const extra = [];
+  if (s.rir !== "" && s.rir != null && (type === "wr" || type === "r")) extra.push(`зап ${s.rir}`);
+  if (s.rest !== "" && s.rest != null) extra.push(`отдых ${fmtSec(s.rest)}`);
+  const tail = extra.length ? ` (${extra.join(", ")})` : "";
+  if (type === "wr") return `${numStr(s.w) || 0}×${s.r || "?"}${tail}`;
+  if (type === "r") return `${s.r || "?"}${tail}`;
+  if (type === "t") return fmtSec(s.t) + tail;
   const parts = [];
   if (s.min !== "") parts.push(`${numStr(s.min)} мин`);
   if (s.km !== "") parts.push(`${numStr(s.km)} км`);
@@ -151,7 +155,12 @@ function setRow(e, i, s, j) {
   const rir = (e.type === "wr" || e.type === "r")
     ? `<select data-i="${i}" data-j="${j}" data-k="rir" aria-label="Запас повторов"><option value="" ${s.rir === "" || s.rir == null ? "selected" : ""}>запас?</option>${RIR.slice(1).map(r => `<option value="${r}" ${String(s.rir) === r ? "selected" : ""}>${RIR_LABEL[r]}</option>`).join("")}</select>`
     : `<span></span>`;
-  return `<div class="set ${s.done ? "done" : ""}"><span class="n">${j + 1}</span><div class="fields">${f}</div>${rir}<button class="check" data-act="done" data-i="${i}" data-j="${j}" aria-label="Подход выполнен">✓</button></div>`;
+  const running = !!s.restStart;
+  const restLine = running
+    ? `<div class="rest-line live" id="rest${i}_${j}">⏱ отдых ${fmtSec((Date.now() - s.restStart) / 1000)} — нажми ещё раз, когда начнёшь следующий подход</div>`
+    : (s.rest !== "" && s.rest != null ? `<div class="rest-line">отдых ${fmtSec(s.rest)}</div>` : "");
+  const label = running ? "Зафиксировать отдых" : s.done ? "Подход выполнен" : "Отметить подход";
+  return `<div class="set ${s.done ? "done" : ""}"><span class="n">${j + 1}</span><div class="fields">${f}</div>${rir}<button class="check ${running ? "running" : ""}" data-act="done" data-i="${i}" data-j="${j}" aria-label="${label}">${running ? "⏱" : "✓"}</button></div>${restLine}`;
 }
 function viewToday(v) {
   const pl = plan();
@@ -203,20 +212,40 @@ function beep() {
   } catch {}
   navigator.vibrate?.([300, 150, 300]);
 }
-function startTimer(sec) {
-  if (!sec) return;
+/* Отдых: 1-е нажатие ✓ — подход выполнен, пошёл отсчёт отдыха; 2-е — отдых зафиксирован (s.rest, сек). */
+let beepedFor = 0;
+function runningRest(d) {
+  if (!d) return null;
+  for (let i = 0; i < d.ex.length; i++) for (let j = 0; j < d.ex[i].sets.length; j++) {
+    const s = d.ex[i].sets[j]; if (s.restStart) return { i, j, s };
+  }
+  return null;
+}
+function fixRest(d, discard) {
+  const r = runningRest(d); if (!r) return null;
+  if (!discard) r.s.rest = Math.max(0, Math.round((Date.now() - r.s.restStart) / 1000));
+  delete r.s.restStart;
+  return r;
+}
+function startTimer() {
   try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume?.(); } catch {}
-  timerEnd = Date.now() + sec * 1000;
-  $("#timer").classList.remove("hidden", "over"); document.body.classList.add("timer-on");
+  $("#timer").classList.remove("hidden"); document.body.classList.add("timer-on");
   clearInterval(timerInt); timerInt = setInterval(tick, 250); tick();
 }
 function tick() {
-  const left = Math.round((timerEnd - Date.now()) / 1000);
-  $("#timerTime").textContent = left >= 0 ? fmtSec(left) : "+" + fmtSec(-left);
-  if (left <= 0 && !$("#timer").classList.contains("over")) { $("#timer").classList.add("over"); beep(); }
-  if (left < -120) stopTimer();
+  const d = S.drafts[P()], r = runningRest(d);
+  if (!r) { stopTimer(); return; }
+  const el = Math.floor((Date.now() - r.s.restStart) / 1000), goal = d.restTarget || 0;
+  $("#timerTime").textContent = fmtSec(el);
+  $("#timerGoal").textContent = goal ? "цель " + fmtSec(goal) : "";
+  const over = goal && el >= goal;
+  $("#timer").classList.toggle("over", !!over);
+  if (over && beepedFor !== r.s.restStart) { beepedFor = r.s.restStart; beep(); }
+  const ln = document.getElementById(`rest${r.i}_${r.j}`);
+  if (ln) ln.firstChild.textContent = `⏱ отдых ${fmtSec(el)} — нажми ещё раз, когда начнёшь следующий подход`;
 }
-function stopTimer() { clearInterval(timerInt); $("#timer").classList.add("hidden"); document.body.classList.remove("timer-on"); }
+function stopTimer() { clearInterval(timerInt); timerInt = null; $("#timer").classList.add("hidden"); document.body.classList.remove("timer-on"); }
+function syncTimer() { runningRest(S.drafts[P()]) ? (timerInt || startTimer()) : stopTimer(); }
 
 /* ---------- История ---------- */
 function viewHistory(v) {
@@ -292,7 +321,7 @@ function mdFor(p) {
   const ms = S.measures.filter(m => m.profile === p).sort((a, b) => b.date.localeCompare(a.date));
   let md = `# Дневник из приложения — ${name}\n\n_Выгружено: ${ruDate(todayISO())} ${new Date().toTimeString().slice(0, 5)} · план: ${pl.week}_\n\n`;
   md += `> **Для Claude:** выгрузка из приложения «Тренер». Подключи скилл \`personal-trainer\` и перенеси эти результаты в дневник в \`C:\\Тренировки\`.\n\n`;
-  md += `Обозначения: «60×8 (зап 2)» — 60 кг на 8 повторов, 2 повтора в запасе. Время — мин:сек.\n\n`;
+  md += `Обозначения: «60×8 (зап 2, отдых 2:15)» — 60 кг на 8 повторов, 2 повтора в запасе, отдых после подхода 2 мин 15 сек. Время — мин:сек.\n\n`;
   md += `## Журнал тренировок\n\n`;
   md += ses.length ? ses.map(s => {
     let t = `### ${ruDate(s.date)} — ${s.dayTitle}\n`;
@@ -323,7 +352,7 @@ async function exportXlsx() {
   const vis = VIS();
   [...S.sessions].filter(s => vis.includes(s.profile)).sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts).forEach(s => s.ex.forEach(e => e.sets.forEach((x, j) => rows.push({
     "Профиль": S.names[s.profile], "Дата": ruDate(s.date), "Тренировка": s.dayTitle, "Упражнение": e.name, "Подход": j + 1,
-    "Вес, кг": x.w ?? "", "Повторы": x.r ?? "", "Запас": x.rir ?? "", "Время, сек": x.t ?? "",
+    "Вес, кг": x.w ?? "", "Повторы": x.r ?? "", "Запас": x.rir ?? "", "Время, сек": x.t ?? "", "Отдых, сек": x.rest ?? "",
     "Минуты": x.min ?? "", "Км": x.km ?? "", "Уровень": x.lvl ?? "", "Заметка": j === 0 ? e.note : ""
   }))));
   const sess = [...S.sessions].filter(s => vis.includes(s.profile)).sort((a, b) => a.date.localeCompare(b.date)).map(s => ({
@@ -396,10 +425,11 @@ function finishSheet() {
 }
 function saveSession() {
   const d = getDraft();
-  const clean = (type, s) => { const o = {}; Object.keys(setFieldsFor(type)).forEach(k => o[k] = s[k] ?? ""); return o; };
+  fixRest(d, true);   // отдых после последнего подхода не считаем
+  const clean = (type, s) => { const o = {}; Object.keys(setFieldsFor(type)).forEach(k => o[k] = s[k] ?? ""); if (s.rest !== "" && s.rest != null) o.rest = s.rest; return o; };
   const ex = d.ex.map(e => ({
     name: e.name, type: e.type, note: e.note.trim(),
-    sets: e.sets.filter(s => s.done || Object.entries(s).some(([k, v]) => k !== "done" && k !== "rir" && v !== "")).map(s => clean(e.type, s))
+    sets: e.sets.filter(s => s.done || Object.entries(s).some(([k, v]) => !["done", "rir", "rest", "restStart"].includes(k) && v !== "" && v != null)).map(s => clean(e.type, s))
   })).filter(e => e.sets.length || e.note);
   const ses = { id: d.editId || uid(), ts: Date.now(), profile: P(), date: d.date, dayId: d.dayId, dayTitle: d.dayTitle, ex, feel, note: ($("#sesNote")?.value || "").trim() };
   if (d.editId) S.sessions = S.sessions.filter(s => s.id !== d.editId);
@@ -442,14 +472,20 @@ document.addEventListener("click", e => {
     case "hint": $("#hint" + i).classList.toggle("hidden"); break;
     case "note": { const t = $("#note" + i); t.classList.remove("hidden"); t.focus(); break; }
     case "done": {
-      const s = d.ex[i].sets[j]; s.done = !s.done;
-      if (s.done) {
-        const prev = j > 0 ? d.ex[i].sets[j - 1] : null;
-        if (prev) Object.keys(s).forEach(k => { if (k !== "done" && k !== "rir" && s[k] === "" && prev[k] !== "") s[k] = prev[k]; });
-        startTimer(d.ex[i].rest);
+      const ex = d.ex[i], s = ex.sets[j];
+      if (s.restStart) { fixRest(d); save(); render(); toast(`Отдых ${fmtSec(s.rest)} записан`); break; }   // 2-е нажатие
+      if (s.done) {                                                                                         // снять отметку
+        if (!confirm("Снять отметку с этого подхода?")) break;
+        s.done = false; s.rest = ""; save(); render(); break;
       }
+      fixRest(d);                                // если у другого подхода отдых не зафиксировали — фиксируем сейчас
+      s.done = true;
+      const prev = j > 0 ? ex.sets[j - 1] : null;
+      if (prev) Object.keys(s).forEach(k => { if (!["done", "rir", "rest", "restStart"].includes(k) && s[k] === "" && prev[k] !== "" && prev[k] != null) s[k] = prev[k]; });
+      if (ex.rest) { s.restStart = Date.now(); d.restTarget = ex.rest; }
       save(); render(); break;
     }
+    case "rest-fix": { const r = fixRest(d); save(); render(); if (r) toast(`Отдых ${fmtSec(r.s.rest)} записан`); break; }
     case "addset": { const ex = d.ex[i]; const last = ex.sets[ex.sets.length - 1]; const n = { ...setFieldsFor(ex.type), done: false }; if (last) Object.keys(n).forEach(k => { if (k !== "done" && k !== "rir" && k !== "r") n[k] = last[k] ?? ""; }); ex.sets.push(n); save(); render(); break; }
     case "delset": d.ex[i].sets.pop(); save(); render(); break;
     case "finish": finishSheet(); break;
@@ -457,9 +493,9 @@ document.addEventListener("click", e => {
     case "feel": feel = +b.dataset.v; document.querySelectorAll(".scale button").forEach(x => x.classList.toggle("on", +x.dataset.v === feel)); break;
     case "save-session": saveSession(); break;
     case "close": closeSheet(); break;
-    case "timer-plus": timerEnd += 15000; $("#timer").classList.remove("over"); tick(); break;
-    case "timer-minus": timerEnd -= 15000; tick(); break;
-    case "timer-stop": stopTimer(); break;
+    case "timer-plus": if (d) { d.restTarget = (d.restTarget || 0) + 15; save(); tick(); } break;
+    case "timer-minus": if (d) { d.restTarget = Math.max(0, (d.restTarget || 0) - 15); save(); tick(); } break;
+    case "timer-stop": { const r = fixRest(d); save(); render(); if (r) toast(`Отдых ${fmtSec(r.s.rest)} записан`); break; }
     case "del-session": if (confirm("Удалить эту тренировку?")) { S.deleted[b.dataset.id] = Date.now(); S.sessions = S.sessions.filter(s => s.id !== b.dataset.id); save(); render(); changed(); } break;
     case "edit-session": editSession(b.dataset.id); break;
     case "add-measure": {
