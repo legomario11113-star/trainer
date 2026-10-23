@@ -28,7 +28,10 @@
   <button class="t-btn t-stop" data-act="rest-fix">Готов</button>
 </div>
 
+<div class="savebar hidden" id="saveBar"><span>План изменён</span><button class="btn" data-c="save-plan">Сохранить план</button></div>
+
 <nav class="tabs" id="tabs">
+  <button data-tab="coach" id="tabCoach" class="hidden"><span class="ti">★</span>Тренер</button>
   <button data-tab="today"><span class="ti">●</span>Сегодня</button>
   <button data-tab="history"><span class="ti">☰</span>История</button>
   <button data-tab="measures"><span class="ti">◐</span>Замеры</button>
@@ -38,9 +41,11 @@
 <div class="modal hidden" id="modal"><div class="sheet" id="sheet"></div></div>
 <div class="toast hidden" id="toast"></div>
 <input type="file" id="fileInput" accept=".json,application/json" hidden>
+<datalist id="libList"></datalist>
 
 <script src="plan-default.js"></script>
 <script src="sync.js"></script>
 <script src="app.js"></script>
+<script src="coach.js"></script>
 </body>
 </html>

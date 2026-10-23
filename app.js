@@ -14,21 +14,27 @@ const RIR = ["", "0", "1", "2", "3", "4+"];
 const RIR_LABEL = { "0": "0 — отказ", "1": "+1 — на пределе", "2": "+2 — тяжело", "3": "+3 — норм", "4+": "+4 — легко" };
 
 /* ---------- состояние ---------- */
+/* S.names — клиенты {id: имя}; S.plans — план каждого клиента; sessions/measures помечены profile = id клиента.
+   S.library — библиотека упражнений тренера. Подробности — PROJECT_NOTES.md. */
 function blank() {
   return {
-    names: { me: "Я", her: "Девушка" },
-    plans: JSON.parse(JSON.stringify(window.DEFAULT_PLANS)),
-    sessions: [],
-    measures: [],
-    drafts: {},
-    deleted: {},
-    meta: { plansTs: { me: 0, her: 0 }, namesTs: 0 },
-    ui: { profile: "me", tab: "today", day: {} }
+    names: {}, plans: {}, sessions: [], measures: [], drafts: {}, deleted: {}, library: [],
+    meta: { plansTs: {}, nameTs: {}, deletedClients: {}, libraryTs: 0 },
+    ui: { profile: "", tab: "today", day: {}, coach: { view: "list", id: "" } }
   };
 }
+function normalize(st) {
+  st.deleted = st.deleted || {}; st.library = st.library || []; st.names = st.names || {}; st.plans = st.plans || {};
+  st.meta = Object.assign({ plansTs: {}, nameTs: {}, deletedClients: {}, libraryTs: 0 }, st.meta || {});
+  st.meta.plansTs = st.meta.plansTs || {}; st.meta.deletedClients = st.meta.deletedClients || {};
+  if (!st.meta.nameTs || typeof st.meta.nameTs !== "object") st.meta.nameTs = {};
+  Object.keys(st.names).forEach(id => { if (st.meta.nameTs[id] == null) st.meta.nameTs[id] = st.meta.namesTs || 0; });   // v2 → v3
+  st.ui = Object.assign({ profile: "", tab: "today", day: {}, coach: { view: "list", id: "" } }, st.ui || {});
+  st.ui.coach = st.ui.coach || { view: "list", id: "" };
+  return st;
+}
 let S;
-try { S = Object.assign(blank(), JSON.parse(localStorage.getItem(KEY) || "null") || {}); } catch { S = blank(); }
-S.deleted = S.deleted || {}; S.meta = Object.assign({ plansTs: { me: 0, her: 0 }, namesTs: 0 }, S.meta || {});
+try { S = normalize(Object.assign(blank(), JSON.parse(localStorage.getItem(KEY) || "null") || {})); } catch { S = blank(); }
 // переименование дней плана девушки (А/Б → понятные названия)
 (() => {
   const ren = { "Тренировка А": "Ягодицы и спина", "Тренировка Б": "Ноги и плечи" };
@@ -61,8 +67,8 @@ window.addEventListener("pagehide", () => save(true));
 document.addEventListener("visibilitychange", () => document.hidden && save(true));
 if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
 
-const VIS = () => (typeof Sync !== "undefined" ? Sync.profiles : ["me", "her"]);
-const P = () => { const v = VIS(); if (!v.includes(S.ui.profile)) S.ui.profile = v[0]; return S.ui.profile; };
+const VIS = () => Sync.profiles;
+const P = () => { const v = VIS(); if (!v.includes(S.ui.profile)) S.ui.profile = v[0] || ""; return S.ui.profile; };
 const plan = (p = P()) => S.plans[p] || { week: "", rule: "", days: [] };
 
 /* ---------- общие элементы ---------- */
@@ -76,16 +82,27 @@ $("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeS
 
 function renderProfiles() {
   P();
-  $("#profiles").innerHTML = VIS().map(p =>
-    `<button data-act="profile" data-p="${p}" class="${P() === p ? "on" : ""}">${esc(S.names[p])}</button>`).join("");
+  const vis = VIS(), admin = Sync.isAdmin;
+  $("#profiles").classList.toggle("single", !admin);
+  $("#profiles").innerHTML = !vis.length
+    ? `<div class="brand">Тренер</div>`
+    : !admin ? `<div class="brand">${esc(S.names[vis[0]] || "Мой дневник")}</div>`
+    : vis.map(p => `<button data-act="profile" data-p="${p}" class="${P() === p ? "on" : ""}">${esc(S.names[p] || "Без имени")}</button>`).join("");
+  $("#tabCoach").classList.toggle("hidden", !admin);
+  if (!admin && S.ui.tab === "coach") S.ui.tab = "today";
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === S.ui.tab));
 }
 
 function render() {
   renderProfiles();
   const v = $("#view");
-  ({ today: viewToday, history: viewHistory, measures: viewMeasures, more: viewMore })[S.ui.tab](v);
+  ({ today: viewToday, history: viewHistory, measures: viewMeasures, more: viewMore, coach: viewCoach })[S.ui.tab](v);
   syncTimer();
+}
+function noClient(v) {
+  v.innerHTML = Sync.isAdmin
+    ? `<div class="empty">Клиентов пока нет.<br><br><button class="btn" data-tab="coach">Добавить клиента</button></div>`
+    : `<div class="empty">Подключаемся…</div>`;
 }
 
 /* ---------- черновик тренировки ---------- */
@@ -99,7 +116,7 @@ function newDraft(day) {
   return {
     dayId: day.id, dayTitle: `${day.label} — ${day.title}`, date: todayISO(),
     ex: day.exercises.map(e => ({
-      name: e.name, type: e.type, target: e.reps, rest: e.rest, hint: e.hint || "", test: !!e.test, note: "",
+      name: e.name, type: e.type, target: e.reps, weight: e.weight || "", rest: e.rest, hint: e.hint || "", test: !!e.test, note: "",
       sets: Array.from({ length: Math.max(1, e.sets || 1) }, () => ({ ...setFieldsFor(e.type), done: false }))
     }))
   };
@@ -148,7 +165,7 @@ function field(i, j, k, val, unit, mode = "decimal", ph = "") {
 }
 function setRow(e, i, s, j) {
   let f = "";
-  if (e.type === "wr") f = field(i, j, "w", s.w, "кг") + `<span class="x">×</span>` + field(i, j, "r", s.r, "раз", "numeric");
+  if (e.type === "wr") f = field(i, j, "w", s.w, "кг", "decimal", String(e.weight || "").split(/[–-]/)[0]) + `<span class="x">×</span>` + field(i, j, "r", s.r, "раз", "numeric");
   else if (e.type === "r") f = field(i, j, "r", s.r, "раз", "numeric");
   else if (e.type === "t") f = field(i, j, "t", s.t, "сек", "numeric");
   else f = field(i, j, "min", s.min, "мин") + field(i, j, "km", s.km, "км") + field(i, j, "lvl", s.lvl, "ур", "numeric");
@@ -163,8 +180,14 @@ function setRow(e, i, s, j) {
   return `<div class="set ${s.done ? "done" : ""}"><span class="n">${j + 1}</span><div class="fields">${f}</div>${rir}<button class="check ${running ? "running" : ""}" data-act="done" data-i="${i}" data-j="${j}" aria-label="${label}">${running ? "⏱" : "✓"}</button></div>${restLine}`;
 }
 function viewToday(v) {
+  if (!P()) { noClient(v); return; }
   const pl = plan();
-  if (!pl.days.length) { v.innerHTML = `<div class="empty">Плана пока нет.<br>Загрузите его в разделе «Ещё».</div>`; return; }
+  if (!pl.days.length) {
+    v.innerHTML = Sync.isAdmin
+      ? `<div class="empty">У «${esc(S.names[P()])}» пока нет плана.<br><br><button class="btn" data-act="coach-open" data-id="${P()}">Составить план</button></div>`
+      : `<div class="empty">Тренер ещё не составил вам план.<br>Загляните чуть позже 🙂</div>`;
+    return;
+  }
   const day = currentDay(), d = getDraft();
   const doneSets = d.ex.reduce((a, e) => a + e.sets.filter(s => s.done).length, 0);
   const allSets = d.ex.reduce((a, e) => a + e.sets.length, 0);
@@ -178,7 +201,7 @@ function viewToday(v) {
       const complete = e.sets.length && e.sets.every(s => s.done);
       return `<section class="ex ${complete ? "complete" : ""}">
         <div class="ex-head">
-          <div class="ex-title"><b>${esc(e.name)}</b><small>${e.sets.length} × ${esc(e.target)}${e.rest ? ` · отдых ${fmtSec(e.rest)}` : ""}</small></div>
+          <div class="ex-title"><b>${esc(e.name)}</b><small>${e.sets.length} × ${esc(e.target)}${e.weight ? ` · ${esc(e.weight)} кг` : ""}${e.rest ? ` · отдых ${fmtSec(e.rest)}` : ""}</small></div>
           ${e.test ? `<span class="badge">ТЕСТ</span>` : ""}
         </div>
         ${prev ? `<div class="prev">Прошлый раз (${ruDate(prev.date)}): <b>${esc(prev.text)}</b></div>` : ""}
@@ -249,6 +272,7 @@ function syncTimer() { runningRest(S.drafts[P()]) ? (timerInt || startTimer()) :
 
 /* ---------- История ---------- */
 function viewHistory(v) {
+  if (!P()) { noClient(v); return; }
   const list = S.sessions.filter(s => s.profile === P()).sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
   v.innerHTML = `<h1>История</h1><p class="sub">${esc(S.names[P()])} · тренировок: ${list.length}</p>` +
     (list.length ? list.map(s => `<div class="card">
@@ -262,6 +286,7 @@ function viewHistory(v) {
 
 /* ---------- Замеры ---------- */
 function viewMeasures(v) {
+  if (!P()) { noClient(v); return; }
   const list = S.measures.filter(m => m.profile === P()).sort((a, b) => b.date.localeCompare(a.date));
   v.innerHTML = `<h1>Замеры</h1><p class="sub">Вес — утром натощак. Талия — на уровне пупка.</p>
     <div class="card"><div class="form">
@@ -276,27 +301,23 @@ function viewMeasures(v) {
 
 /* ---------- Ещё ---------- */
 function viewMore(v) {
+  const admin = Sync.isAdmin, has = !!P();
   v.innerHTML = `<h1>Выгрузка и настройки</h1>
   <div class="menu">
-    <h2>Для Claude</h2>
+    ${has ? `<h2>Дневник</h2>
     <button class="btn" data-act="export-md">Выгрузить дневник (.md) — ${esc(S.names[P()])}</button>
-    ${VIS().length > 1 ? `<button class="btn ghost" data-act="export-md-all">Выгрузить дневник (.md) — оба</button>` : ""}
-    <p>Файл в формате, который Claude читает напрямую. Прикрепите его в чат или положите в папку C:\\Тренировки.</p>
-    <button class="btn ghost" data-act="import-plan">Загрузить новый план (.json)</button>
-    <p>Файл плана присылает Claude. Сейчас: «${esc(plan("me").week)}» / «${esc(plan("her").week)}».</p>
+    ${admin && VIS().length > 1 ? `<button class="btn ghost" data-act="export-md-all">Выгрузить дневник (.md) — все клиенты</button>` : ""}
+    <p>Файл в формате, который Claude читает напрямую. Прикрепите его в чат.</p>
+    <button class="btn ghost" data-act="export-xlsx">Выгрузить в Excel (.xlsx)</button>
+    <p>Все тренировки и замеры${admin && VIS().length > 1 ? " всех клиентов" : ""}, по подходам.</p>` : ""}
+    ${admin && has ? `<button class="btn ghost" data-act="import-plan">Загрузить план из файла (.json)</button>
+    <p>Для планов, которые присылает Claude. Обычно план удобнее составить во вкладке «Тренер».</p>` : ""}
 
     ${Sync.section()}
 
-    <h2>Для себя</h2>
-    <button class="btn ghost" data-act="export-xlsx">Выгрузить в Excel (.xlsx)</button>
-    <p>Все тренировки и замеры${VIS().length > 1 ? " обоих профилей" : ""}, по подходам.</p>
-
     <h2>Резервная копия</h2>
     <div class="row"><button class="btn ghost" data-act="backup">Сохранить копию</button><button class="btn ghost" data-act="restore">Восстановить</button></div>
-    <p>Данные хранятся только в этом браузере. Делайте копию раз в неделю — особенно на iPhone.</p>
-
-    <h2>Имена профилей</h2>
-    <div class="form">${VIS().map((p, i) => `<label>Профиль ${i + 1}<input data-name="${p}" value="${esc(S.names[p])}"></label>`).join("")}</div>
+    <p>Данные хранятся в этом браузере${Sync.on ? " и в зашифрованном облаке" : ""}. Копия в файл — дополнительная страховка.</p>
     <h2>&nbsp;</h2>
     <button class="btn danger" data-act="wipe">Удалить все данные на этом устройстве</button>
   </div>`;
@@ -337,7 +358,7 @@ function mdFor(p) {
 function exportMd(all) {
   const ps = all ? VIS() : [P()];
   const md = ps.map(mdFor).join("\n\n---\n\n");
-  const fname = all ? `дневник_оба_${stamp()}.md` : `дневник_${S.names[P()]}_${stamp()}.md`;
+  const fname = all ? `дневник_все_${stamp()}.md` : `дневник_${S.names[P()]}_${stamp()}.md`;
   deliver(fname.replace(/[\\/:*?"<>|\s]+/g, "_"), new Blob([md], { type: "text/markdown" }));
 }
 function loadXlsx() {
@@ -388,7 +409,7 @@ function validDay(d) {
 }
 function importPlan(data) {
   const plans = data.plans || data;
-  const got = ["me", "her"].filter(p => plans[p]);
+  const got = Object.keys(plans).filter(p => S.names[p] && !S.meta.deletedClients[p] && plans[p]);
   if (!got.length || !got.every(p => Array.isArray(plans[p].days) && plans[p].days.every(validDay))) { toast("Файл плана не подходит"); return; }
   got.forEach(p => {
     const old = S.drafts[p];
@@ -406,8 +427,7 @@ function restoreBackup(data) {
   if (data.app !== "trainer" || !Array.isArray(data.sessions)) { toast("Это не резервная копия Тренера"); return; }
   if (!confirm(`Заменить текущие данные копией от ${new Date(data.exported).toLocaleString("ru")}?`)) return;
   const ui = S.ui;
-  S = Object.assign(blank(), data, { ui }); delete S.app; delete S.version; delete S.exported;
-  S.deleted = S.deleted || {}; S.meta = Object.assign({ plansTs: { me: 0, her: 0 }, namesTs: 0 }, S.meta || {});
+  S = normalize(Object.assign(blank(), data, { ui })); delete S.app; delete S.version; delete S.exported;
   save(true); render(); changed(); toast("Данные восстановлены");
 }
 
@@ -458,12 +478,16 @@ function editSession(id) {
 /* ---------- обработчики ---------- */
 document.addEventListener("click", e => {
   const tab = e.target.closest("[data-tab]");
-  if (tab) { S.ui.tab = tab.dataset.tab; save(); render(); scrollTo(0, 0); return; }
+  if (tab) {
+    if (S.ui.tab === "coach" && tab.dataset.tab !== "coach" && !Coach.leave()) return;
+    S.ui.tab = tab.dataset.tab; save(); render(); scrollTo(0, 0); return;
+  }
   const b = e.target.closest("[data-act]"); if (!b) return;
   const act = b.dataset.act, i = +b.dataset.i, j = +b.dataset.j;
   const d = S.drafts[P()];
   switch (act) {
     case "profile": S.ui.profile = b.dataset.p; save(); render(); break;
+    case "coach-open": S.ui.tab = "coach"; S.ui.coach = { view: "client", id: b.dataset.id }; save(); render(); scrollTo(0, 0); break;
     case "day": {
       if (draftHasData(d) && d.dayId !== b.dataset.id && !confirm("Есть незавершённая тренировка. Переключить день? Записанное будет потеряно.")) return;
       if (d?.dayId !== b.dataset.id) delete S.drafts[P()];
@@ -511,7 +535,7 @@ document.addEventListener("click", e => {
     case "import-plan": pickFile("plan"); break;
     case "backup": backup(); break;
     case "restore": pickFile("restore"); break;
-    case "sync-create": case "sync-connect": case "sync-now": case "sync-code": case "sync-copy": case "sync-off": Sync.handle(act, b); break;
+    case "sync-create": case "sync-connect": case "sync-now": case "sync-code": case "sync-copy": case "sync-share": case "sync-off": Sync.handle(act, b); break;
     case "wipe":
       if (confirm("Удалить ВСЕ тренировки, замеры и планы на этом устройстве?") && confirm("Точно? Это нельзя отменить.")) {
         S = blank(); save(true); render(); toast("Данные удалены");
@@ -521,7 +545,6 @@ document.addEventListener("click", e => {
 });
 document.addEventListener("input", e => {
   const t = e.target;
-  if (t.dataset.name) { S.names[t.dataset.name] = t.value.trim() || (t.dataset.name === "me" ? "Я" : "Девушка"); renderProfiles(); S.meta.namesTs = Date.now(); save(); changed(); return; }
   const d = S.drafts[P()]; if (!d) return;
   if (t.dataset.k === "date") { d.date = t.value || todayISO(); save(); return; }
   if (t.dataset.k === "note") { d.ex[+t.dataset.i].note = t.value; save(); return; }
@@ -531,8 +554,7 @@ document.addEventListener("input", e => {
     save();
   }
 });
-document.addEventListener("change", e => { if (e.target.dataset.name) render(); });
 
-render();
-Sync.syncNow(false);
+// старт — после загрузки всех скриптов (coach.js подключается последним)
+document.addEventListener("DOMContentLoaded", () => { render(); Sync.syncNow(false); });
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
