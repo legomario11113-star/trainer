@@ -225,6 +225,35 @@ const Sync = (() => {
     await syncNow(false);
   }
 
+  /* ---- вход по ссылке: …/trainer/#join=TRN2.… ---- */
+  const BASE = location.origin + location.pathname.replace(/[^/]*$/, "");
+  function link(kind) { return BASE + "#join=" + code(kind); }
+  function hashCode() { const m = location.hash.match(/^#join=(TRN[12]\.[\w-]+)/); return m ? m[1] : ""; }
+  function peekScope(c) {
+    try { const o = JSON.parse(unb64url(c.slice(5))); return o.her && !o.m && !o.k ? { g: o.g, p: ["her"] } : { g: o.g, p: ALL }; } catch { return null; }
+  }
+  const pending = !cfg && hashCode() ? peekScope(hashCode()) : null;
+  // Установка «на экран Домой» должна открывать ту же ссылку (с кодом), иначе на iPhone приложение откроется неподключённым.
+  function manifestWithJoin() {
+    if (!hashCode()) return;
+    fetch("manifest.webmanifest").then(r => r.json()).then(m => {
+      m.start_url = location.href; m.scope = BASE; m.id = BASE;
+      m.icons = (m.icons || []).map(i => ({ ...i, src: new URL(i.src, BASE).href }));
+      const l = document.querySelector('link[rel="manifest"]');
+      if (l) l.href = URL.createObjectURL(new Blob([JSON.stringify(m)], { type: "application/manifest+json" }));
+    }).catch(() => {});
+  }
+  async function joinFromHash() {
+    const c = hashCode(); if (!c) return;
+    const sc = peekScope(c); if (!sc) { toast("Ссылка повреждена"); return; }
+    if (cfg && cfg.g === sc.g && cfg.p.length >= sc.p.length) return; // уже подключено
+    if (!navigator.onLine) { toast("Нет интернета — подключимся, когда появится"); window.addEventListener("online", joinFromHash, { once: true }); return; }
+    try { await connect(c); toast(cfg.p.length === 1 ? `Привет, ${S.names[cfg.p[0]]}! 💪` : "Устройство подключено"); render(); }
+    catch (e) { toast("Не удалось подключиться: " + (e.message || e)); }
+  }
+  manifestWithJoin();
+  setTimeout(joinFromHash, 0);
+
   /* ---- раздел в «Ещё» ---- */
   function section() {
     if (!cfg) return `
@@ -252,12 +281,15 @@ const Sync = (() => {
         <p class="sub" style="margin:0 0 10px">Доступ на этом устройстве: <b>${full ? "все профили" : "только «" + esc(S.names[cfg.p[0]]) + "»"}</b></p>
         <button class="btn" data-act="sync-now">Синхронизировать сейчас</button>
         ${full ? `
-          <button class="btn ghost" data-act="sync-code" data-kind="her">Код для девушки (только её профиль)</button>
-          <button class="btn ghost" data-act="sync-code" data-kind="full">Полный код (для своих устройств)</button>` : ""}
+          <button class="btn ghost" data-act="sync-code" data-kind="her">Ссылка для «${esc(S.names.her)}» (только её профиль)</button>
+          <button class="btn ghost" data-act="sync-code" data-kind="full">Ссылка для своих устройств</button>` : ""}
         <div id="syncCodeBox" class="hidden" style="margin-top:10px">
           <div id="syncCodeLabel" class="sub" style="margin:0 0 6px"></div>
           <textarea id="syncCodeText" readonly style="min-height:90px;font-size:12px;word-break:break-all"></textarea>
-          <button class="btn ghost" style="margin-top:8px" data-act="sync-copy">Скопировать код</button>
+          <div class="row" style="margin-top:8px">
+            <button class="btn ghost" data-act="sync-copy">Скопировать</button>
+            ${navigator.share ? `<button class="btn ghost" data-act="sync-share">Отправить…</button>` : ""}
+          </div>
         </div>
       </div>
       <p>Синхронизация идёт сама: при открытии приложения, после сохранения тренировки или замера и при появлении интернета.</p>
@@ -272,14 +304,17 @@ const Sync = (() => {
         const kind = el?.dataset.kind || "full";
         document.getElementById("syncCodeBox").classList.remove("hidden");
         document.getElementById("syncCodeLabel").textContent = kind === "her"
-          ? `Для «${S.names.her}»: откроет только её профиль, ваши тренировки ей не видны.`
+          ? `Для «${S.names.her}»: откроет приложение сразу с её профилем. Ваши тренировки ей не видны. На iPhone пусть откроет в Safari и потом «На экран „Домой“».`
           : "Полный доступ ко всем профилям. Только для ваших устройств — никому не отправляйте.";
-        document.getElementById("syncCodeText").value = code(kind);
+        document.getElementById("syncCodeText").value = link(kind);
       }
       else if (act === "sync-copy") {
         const t = document.getElementById("syncCodeText");
         try { await navigator.clipboard.writeText(t.value); } catch { t.select(); document.execCommand("copy"); }
-        toast("Код скопирован");
+        toast("Ссылка скопирована");
+      }
+      else if (act === "sync-share") {
+        try { await navigator.share({ title: "Тренер", text: "Дневник тренировок:", url: document.getElementById("syncCodeText").value }); } catch {}
       }
       else if (act === "sync-off") {
         if (!confirm("Отключить синхронизацию? Данные на устройстве и в облаке останутся.")) return;
@@ -294,6 +329,6 @@ const Sync = (() => {
   return {
     syncNow, schedule, section, handle,
     get on() { return !!cfg; },
-    get profiles() { return cfg?.p || ALL; }
+    get profiles() { return cfg?.p || pending?.p || ALL; }
   };
 })();
