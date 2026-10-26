@@ -411,8 +411,13 @@ function validDay(d) {
   return d && d.id && d.title && Array.isArray(d.exercises) && d.exercises.every(e => e.name && ["wr", "r", "t", "cardio"].includes(e.type));
 }
 function importPlan(data) {
-  const plans = data.plans || data;
-  const got = Object.keys(plans).filter(p => S.names[p] && !S.meta.deletedClients[p] && plans[p]);
+  const plans = { ...(data.plans || data) };
+  let got = Object.keys(plans).filter(p => S.names[p] && !S.meta.deletedClients[p] && plans[p]);
+  // в файле один план, а такого клиента нет (например, клиент заведён заново) — загрузить в дневник выбранного клиента
+  const keys = Object.keys(plans).filter(k => plans[k]?.days);
+  if (!got.length && keys.length === 1 && P() && confirm(`Загрузить план «${plans[keys[0]].week || "без названия"}» в дневник «${S.names[P()]}»?`)) {
+    plans[P()] = plans[keys[0]]; got = [P()];
+  }
   if (!got.length || !got.every(p => Array.isArray(plans[p].days) && plans[p].days.every(validDay))) { toast("Файл плана не подходит"); return; }
   got.forEach(p => {
     const old = S.drafts[p];
