@@ -7,6 +7,11 @@ const Coach = (() => {
   const RESTS = [0, 30, 45, 60, 90, 120, 150, 180, 240, 300];
   const DAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
   const clone = o => JSON.parse(JSON.stringify(o));
+  // встроенные шаблоны планов (из plan-default.js)
+  const TEMPLATES = {
+    me: { title: "Оценочная неделя — опытный (3 дня)", plan: window.DEFAULT_PLANS.me },
+    her: { title: "Знакомство с залом — новичок (2 дня)", plan: window.DEFAULT_PLANS.her }
+  };
   let edit = null;   // { id, plan, dirty }
 
   /* ---- библиотека ---- */
@@ -138,9 +143,12 @@ const Coach = (() => {
           <label>Название плана<input data-ce="week" value="${esc(pl.week)}" placeholder="Например: Неделя 1 — втягивающая"></label>
           <label>Комментарий для клиента<textarea data-ce="rule" placeholder="Общие правила: отдых, разминка, на что обратить внимание">${esc(pl.rule)}</textarea></label>
         </div>
-        ${others.length ? `<div class="form" style="grid-template-columns:1fr auto;align-items:end;margin-top:8px">
-          <label>Скопировать план у клиента<select id="copyFrom">${others.map(x => `<option value="${x}">${esc(S.names[x])}</option>`).join("")}</select></label>
-          <button class="btn ghost" style="width:auto;padding:11px 14px" data-c="copy-from">Взять</button></div>` : ""}
+        <div class="form" style="grid-template-columns:1fr auto;align-items:end;margin-top:8px">
+          <label>Взять готовый план<select id="copyFrom">
+            <optgroup label="Шаблоны">${Object.entries(TEMPLATES).map(([k, t]) => `<option value="tpl:${k}">${esc(t.title)}</option>`).join("")}</optgroup>
+            ${others.length ? `<optgroup label="План другого клиента">${others.map(x => `<option value="${x}">${esc(S.names[x])}</option>`).join("")}</optgroup>` : ""}
+          </select></label>
+          <button class="btn ghost" style="width:auto;padding:11px 14px" data-c="copy-from">Взять</button></div>
       </div>
 
       ${pl.days.map((d, di) => dayHtml(d, di, pl.days.length)).join("")}
@@ -336,9 +344,10 @@ const Coach = (() => {
       case "up-ex": { const x = days[di].exercises; [x[ei - 1], x[ei]] = [x[ei], x[ei - 1]]; markDirty(); render(); break; }
       case "down-ex": { const x = days[di].exercises; [x[ei + 1], x[ei]] = [x[ei], x[ei + 1]]; markDirty(); render(); break; }
       case "copy-from": {
-        const src = document.getElementById("copyFrom").value;
-        if (edit.plan.days.length && !confirm(`Заменить текущий план планом «${S.names[src]}»?`)) return;
-        const p = clone(S.plans[src]); p.days.forEach(d => { d.id = uid(); });
+        const src = document.getElementById("copyFrom").value, tpl = src.startsWith("tpl:") ? TEMPLATES[src.slice(4)] : null;
+        const label = tpl ? tpl.title : S.names[src];
+        if (edit.plan.days.length && !confirm(`Заменить текущий план планом «${label}»?`)) return;
+        const p = clone(tpl ? tpl.plan : S.plans[src]); p.days.forEach(d => { d.id = uid(); });
         edit.plan = p; markDirty(); render(); toast("План скопирован — поправьте веса и сохраните"); break;
       }
       case "save-plan": savePlan(); break;
